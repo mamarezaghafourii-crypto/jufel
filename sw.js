@@ -1,5 +1,5 @@
 // نسخه را با هر تغییر در فایل‌ها یکی بالا ببر تا آیفون نسخه‌ی تازه را بگیرد
-const CACHE = 'jufel-v1';
+const CACHE = 'jufel-v2';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'flowers.js', 'manifest.webmanifest',
   'fonts/Vazirmatn.woff2', 'icons/apple-touch-icon.png', 'icons/icon-192.png'];
 

@@ -88,9 +88,20 @@
     return f.mine ? window.customSVG(f.color) : window.flowerSVG(f);
   }
   const priceOf = (id) => prices[id] || null;
-  function rememberPrice(id, p) {
+  // قیمت هر گل می‌تواند برای «شاخه» یا «بسته» ثبت شده باشد؛ اینجا به واحد خواسته‌شده تبدیل می‌شود
+  const unitWord = (per) => (per === 'bunch' ? 'بسته' : 'شاخه');
+  function priceFor(p, per, size) {
+    if (!p || !p.p) return 0;
+    const from = p.per || 'stem';
+    if (from === per && (per === 'stem' || (p.size || size) === size)) return p.p;
+    const stem = from === 'bunch' ? p.p / (p.size || size || 1) : p.p;
+    return Math.round(per === 'bunch' ? stem * size : stem);
+  }
+  const stemsOf = (x) => (x.per === 'bunch' ? x.qty * (x.size || 1) : x.qty);
+  const qtyLabel = (x) => (x.per === 'bunch' ? `${faD(x.qty)} بسته ${faD(x.size)}تایی` : `${faD(x.qty)} شاخه`);
+  function rememberPrice(id, p, per = 'stem', size) {
     if (!p) return;
-    prices[id] = { p, d: new Date().toISOString() };
+    prices[id] = { p, d: new Date().toISOString(), per, ...(per === 'bunch' ? { size } : {}) };
     savePrices();
   }
 
@@ -154,7 +165,7 @@
       h += `<div class="month"><span>${faD(month.length)} سفارش در ${jDate(new Date(), { month: 'long' })}</span><span>سود <b class="num">${fa(mProfit)}</b> تومان</span></div>`;
     }
     h += '<div class="list">' + list.map((o) => {
-      const stems = o.flowers.reduce((s, x) => s + x.qty, 0);
+      const stems = o.flowers.reduce((s, x) => s + stemsOf(x), 0);
       return `<button class="order" data-a="open-order" data-id="${o.id}">${bunch(o)}
         <div style="min-width:0"><div class="who">${esc(o.customer)}</div><div class="meta">${jDate(o.createdAt)}، ${faD(stems)} شاخه</div></div>
         <div class="money"><div class="price num">${fa(o.price)}</div><div class="profit"><i class="dot ${o.synced ? '' : 'pending'}" title="${o.synced ? 'در گوگل شیت ذخیره شده' : 'هنوز به گوگل شیت نرفته'}"></i><span>سود <span class="num">${fa(o.profit)}</span></span></div></div>
@@ -166,7 +177,7 @@
   function viewPrices() {
     const q = priceQuery.trim();
     const fl = allFlowers().filter((f) => !q || f.name.includes(q));
-    let h = `<header class="head"><div><h1>قیمت روز</h1><div class="sub">قیمت خرید هر شاخه؛ کنار هر گل در انتخاب سفارش نشان داده می‌شود.</div></div>
+    let h = `<header class="head"><div><h1>قیمت روز</h1><div class="sub">قیمت خرید هر شاخه یا بسته؛ کنار هر گل در انتخاب سفارش نشان داده می‌شود.</div></div>
       ${settings.scriptUrl ? `<button class="icon-btn" data-a="pull-prices" aria-label="دریافت قیمت‌ها از گوگل شیت">${ic.cloud}</button>` : ''}</header>
       <div class="search">${ic.search}<input class="input" id="pq" type="search" placeholder="جستجوی گل" value="${esc(q)}" autocomplete="off"></div>
       <div class="price-list">`;
@@ -175,7 +186,7 @@
       const val = dirtyPrices[f.id] ?? (p ? p.p : '');
       const when = p ? ago(p.d) : 'بدون قیمت';
       return `<div class="price-row"><div class="art" style="--tint:${tintOf(f)}">${art(f)}</div>
-        <div><div class="nm">${esc(f.name)}</div><div class="dt ${when === 'امروز' ? 'today' : ''}">${when}</div></div>
+        <div><div class="nm">${esc(f.name)}</div><div class="dt ${when === 'امروز' ? 'today' : ''}">${when}${p && p.per === 'bunch' ? '، هر بسته ' + faD(p.size) + 'تایی' : ''}</div></div>
         <label class="money-in sm"><span class="sr">قیمت ${esc(f.name)}</span><input class="input num" inputmode="numeric" data-price="${f.id}" value="${val ? fa(val) : ''}" placeholder="—"></label></div>`;
     }).join('');
     h += `</div><div class="sticky-save" id="savePricesWrap" ${Object.keys(dirtyPrices).length ? '' : 'hidden'}><button class="btn" data-a="save-prices">ذخیره‌ی قیمت‌های امروز</button></div>`;
@@ -257,7 +268,7 @@
     const sp = d.supplies.reduce((s, x) => s + x.unit, 0);
     const cost = fl + pk + sp;
     const price = cost ? roundPrice(cost * (1 + d.markup / 100)) : 0;
-    return { fl, pk, sp, cost, price, profit: price - cost, stems: d.flowers.reduce((s, x) => s + x.qty, 0) };
+    return { fl, pk, sp, cost, price, profit: price - cost, stems: d.flowers.reduce((s, x) => s + stemsOf(x), 0) };
   }
 
   function openWizard(order) {
@@ -317,7 +328,7 @@
   // --- مرحله ۲: گل‌ها
   function stepFlowers() {
     return `<h2 class="step-title">گل‌ها را انتخاب کن</h2>
-      <p class="step-sub">روی هر گل بزن، تعداد و قیمت خرید هر شاخه را وارد کن.</p>
+      <p class="step-sub">روی هر گل بزن و تعداد را به شاخه یا بسته وارد کن؛ قیمت از آخرین قیمت ثبت‌شده پر می‌شود.</p>
       <div class="search">${ic.search}<input class="input" id="w-q" type="search" placeholder="جستجو: رز، لیلیوم، داوودی…" value="${esc(query)}" autocomplete="off"></div>
       <div class="chips" role="group" aria-label="دسته‌ها">${FLOWER_CATS.filter(([k]) => k !== 'mine' || custom.length).map(([k, l]) => `<button class="chip" data-a="cat" data-cat="${k}" aria-pressed="${cat === k}">${l}</button>`).join('')}</div>
       <div class="grid" id="w-grid">${gridHTML()}</div>`;
@@ -340,7 +351,7 @@
       <div class="art" style="--tint:${tintOf(f)}">${art(f)}</div>
       ${sel ? `<span class="badge num">${faD(sel.qty)}</span>` : ''}
       <div class="name">${esc(f.name)}</div>
-      <div class="pp ${p ? '' : 'none'} num">${p ? fa(p.p) : 'بدون قیمت'}</div></button>`;
+      <div class="pp ${p ? '' : 'none'} num">${p ? fa(p.p) + (p.per === 'bunch' ? ' / بسته' : '') : 'بدون قیمت'}</div></button>`;
   }
   const refreshGrid = () => { const g = $('#w-grid'); if (g) g.innerHTML = gridHTML(); };
 
@@ -379,7 +390,7 @@
   // --- مرحله ۵: قیمت‌گذاری
   function stepPrice() {
     const t = totals();
-    const flLine = draft.flowers.map((x) => `${esc(x.name)} ×${faD(x.qty)}`).join('، ');
+    const flLine = draft.flowers.map((x) => `${esc(x.name)} ${qtyLabel(x)}`).join('، ');
     return `<div class="tag-wrap"><div class="tag-hang">
         <svg class="string" viewBox="0 0 120 44" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 2C30 14 48 30 60 40C72 30 90 14 116 2"/></svg>
         <div class="tag"><div class="for">قیمت برای ${esc(draft.customer)}</div>
@@ -460,39 +471,63 @@
     const f = byId(fid);
     const ex = draft.flowers.find((x) => x.fid === fid);
     const p = priceOf(fid);
-    const st = { qty: ex ? ex.qty : 10, unit: ex ? ex.unit : (p ? p.p : 0) };
+    const per0 = ex ? ex.per || 'stem' : (p && p.per) || 'stem';
+    const size0 = (ex && ex.size) || (p && p.size) || 10;
+    const st = { per: per0, size: size0, qty: ex ? ex.qty : per0 === 'bunch' ? 1 : 10, unit: ex ? ex.unit : priceFor(p, per0, size0), auto: !ex };
+    const quickHTML = (per) => (per === 'bunch' ? [1, 2, 5, 10] : [5, 10, 20, 50]).map((n) => `<button data-s="add" data-n="${n}" class="num">+${faD(n)}</button>`).join('');
     const html = `<div class="sh-head"><div class="art" style="--tint:${tintOf(f)}">${art(f)}</div>
       <div><h3>${esc(f.name)}</h3>
-        <div class="last">${p ? `آخرین قیمت <b class="num">${fa(p.p)}</b> تومان، ${ago(p.d)}` : 'هنوز قیمتی برای این گل ثبت نشده'}</div>
+        <div class="last">${p ? `آخرین قیمت <b class="num">${fa(p.p)}</b> تومان هر ${unitWord(p.per)}${p.per === 'bunch' ? ' ' + faD(p.size) + 'تایی' : ''}، ${ago(p.d)}` : 'هنوز قیمتی برای این گل ثبت نشده'}</div>
         <div class="photo"><button class="link" data-s="photo">${photos[fid] ? 'تعویض عکس' : 'گذاشتن عکس خودت'}</button>${photos[fid] ? '<button class="link danger" data-s="rm-photo">حذف عکس</button>' : ''}${f.mine ? '<button class="link danger" data-s="rm-flower">حذف این گل</button>' : ''}</div>
       </div></div>
-      <div class="field"><span>تعداد شاخه</span>
+      <div class="seg" style="margin-bottom:14px"><button data-s="per" data-v="stem" aria-pressed="${st.per === 'stem'}">شاخه‌ای</button><button data-s="per" data-v="bunch" aria-pressed="${st.per === 'bunch'}">بسته‌ای</button></div>
+      <label class="field" id="s-size-wrap" ${st.per === 'bunch' ? '' : 'hidden'}><span>هر بسته چند شاخه است؟</span><input class="input num" id="s-size" inputmode="numeric" value="${faD(st.size)}"></label>
+      <div class="field"><span id="s-qty-l">تعداد ${unitWord(st.per)}</span>
         <div class="stepper"><button data-s="inc" aria-label="بیشتر">${ic.plus}</button><input class="num" id="s-qty" inputmode="numeric" value="${faD(st.qty)}" aria-label="تعداد"><button data-s="dec" aria-label="کمتر">${ic.minus}</button></div></div>
-      <div class="quick">${[5, 10, 20, 50].map((n) => `<button data-s="add" data-n="${n}" class="num">+${faD(n)}</button>`).join('')}</div>
-      <label class="field"><span>قیمت خرید هر شاخه</span><div class="money-in"><input class="input num" id="s-unit" inputmode="numeric" value="${st.unit ? fa(st.unit) : ''}" placeholder="مثلاً ۸۵٬۰۰۰"></div></label>
-      <div class="line-total"><span>جمع این گل</span><span><b class="num" id="s-sum">${fa(st.qty * st.unit)}</b> تومان</span></div>
+      <div class="quick" id="s-quick">${quickHTML(st.per)}</div>
+      <label class="field"><span id="s-unit-l">قیمت خرید هر ${unitWord(st.per)}</span><div class="money-in"><input class="input num" id="s-unit" inputmode="numeric" value="${st.unit ? fa(st.unit) : ''}" placeholder="مثلاً ۸۵٬۰۰۰"></div></label>
+      <div class="line-total"><span>جمع این گل <small id="s-stems" style="color:var(--ink-3)">${st.per === 'bunch' ? '(' + faD(st.qty * st.size) + ' شاخه)' : ''}</small></span><span><b class="num" id="s-sum">${fa(st.qty * st.unit)}</b> تومان</span></div>
       <div class="sh-actions">${ex ? `<button class="btn ghost" data-s="remove" aria-label="حذف از سفارش">${ic.trash}</button>` : ''}
         <button class="btn" data-s="ok">${ex ? 'به‌روزرسانی' : 'افزودن به سفارش'}</button></div>
       <input type="file" accept="image/*" id="s-file" hidden>`;
     openSheet(html, (sh) => {
       const qty = $('#s-qty', sh), unit = $('#s-unit', sh), sum = $('#s-sum', sh);
-      const upd = () => { qty.value = faD(st.qty); sum.textContent = fa(st.qty * st.unit); };
-      qty.addEventListener('input', () => { st.qty = num(qty.value); sum.textContent = fa(st.qty * st.unit); });
+      const stems = $('#s-stems', sh), sizeIn = $('#s-size', sh);
+      const tot = () => { sum.textContent = fa(st.qty * st.unit); stems.textContent = st.per === 'bunch' ? '(' + faD(st.qty * st.size) + ' شاخه)' : ''; };
+      const upd = () => { qty.value = faD(st.qty); tot(); };
+      const setUnit = (v) => { st.unit = v; unit.value = v ? fa(v) : ''; tot(); };
+      qty.addEventListener('input', () => { st.qty = num(qty.value); tot(); });
       qty.addEventListener('blur', () => { st.qty = Math.max(1, st.qty); upd(); });
-      bindMoney(unit, (v) => { st.unit = v; sum.textContent = fa(st.qty * st.unit); });
+      bindMoney(unit, (v) => { st.unit = v; st.auto = false; tot(); });
+      sizeIn.addEventListener('input', () => {
+        st.size = Math.max(1, num(sizeIn.value) || 1);
+        if (st.auto) setUnit(priceFor(p, 'bunch', st.size)); else tot();
+      });
       sh.onclick = (e) => {
         const b = e.target.closest('[data-s]'); if (!b) return;
         const a = b.dataset.s;
-        if (a === 'inc') { st.qty++; upd(); }
+        if (a === 'per') {
+          const v = b.dataset.v; if (v === st.per) return;
+          const u = st.auto && p ? priceFor(p, v, st.size) : v === 'bunch' ? st.unit * st.size : Math.round(st.unit / st.size);
+          st.qty = v === 'bunch' ? Math.max(1, Math.round(st.qty / st.size)) : st.qty * st.size;
+          st.per = v;
+          sh.querySelectorAll('[data-s="per"]').forEach((x) => x.setAttribute('aria-pressed', x === b));
+          $('#s-size-wrap', sh).hidden = v !== 'bunch';
+          $('#s-qty-l', sh).textContent = 'تعداد ' + unitWord(v);
+          $('#s-unit-l', sh).textContent = 'قیمت خرید هر ' + unitWord(v);
+          $('#s-quick', sh).innerHTML = quickHTML(v);
+          qty.value = faD(st.qty); setUnit(u);
+        }
+        else if (a === 'inc') { st.qty++; upd(); }
         else if (a === 'dec') { st.qty = Math.max(1, st.qty - 1); upd(); }
         else if (a === 'add') { st.qty += Number(b.dataset.n); upd(); }
         else if (a === 'ok') {
           st.qty = Math.max(1, st.qty);
-          if (!st.unit) { unit.focus(); toast('قیمت خرید هر شاخه را بنویس'); return; }
-          const item = { fid, name: f.name, qty: st.qty, unit: st.unit };
+          if (!st.unit) { unit.focus(); toast('قیمت خرید هر ' + unitWord(st.per) + ' را بنویس'); return; }
+          const item = { fid, name: f.name, qty: st.qty, unit: st.unit, per: st.per, ...(st.per === 'bunch' ? { size: st.size } : {}) };
           const i = draft.flowers.findIndex((x) => x.fid === fid);
           if (i >= 0) draft.flowers[i] = item; else draft.flowers.push(item);
-          rememberPrice(fid, st.unit);
+          rememberPrice(fid, st.unit, st.per, st.size);
           closeSheet(); refreshGrid(); refreshFoot();
         } else if (a === 'remove') {
           draft.flowers = draft.flowers.filter((x) => x.fid !== fid);
@@ -563,7 +598,7 @@
     const o = orders.find((x) => x.id === id); if (!o) return;
     const t = totals(o);
     const items = [
-      ...o.flowers.map((x) => [`${x.name} ×${faD(x.qty)}`, fa(x.qty * x.unit)]),
+      ...o.flowers.map((x) => [`${x.name}، ${qtyLabel(x)}`, fa(x.qty * x.unit)]),
       ...o.packs.map((x) => [`${PACKS.find(([k]) => k === x.type)[1]}${x.label ? ' (' + x.label + ')' : ''}${x.qty > 1 ? ' ×' + faD(x.qty) : ''}`, fa(x.qty * x.unit)]),
       ...o.supplies.map((x) => [x.name, fa(x.unit)]),
     ];
@@ -599,7 +634,7 @@
   // ---------- متن مشتری ----------
   function customerText(o) {
     const lines = [`سلام ${o.customer} عزیز 🌸`, '', 'جزئیات سفارش شما:'];
-    o.flowers.forEach((x) => lines.push(`• ${x.name}: ${faD(x.qty)} شاخه`));
+    o.flowers.forEach((x) => lines.push(`• ${x.name}: ${faD(stemsOf(x))} شاخه`));
     o.packs.forEach((x) => lines.push(`• ${PACKS.find(([k]) => k === x.type)[1]}${x.label ? ' ' + x.label : ''}`));
     lines.push('', `مبلغ نهایی: ${fa(o.price)} تومان`);
     if (settings.shopName) lines.push('', settings.shopName);
@@ -638,7 +673,7 @@
       id: o.id, customer: o.customer.trim(), phone: o.phone, due: o.due, note: o.note,
       date: jDate(o.createdAt, { year: 'numeric', month: '2-digit', day: '2-digit' }),
       createdAt: o.createdAt, markup: o.markup,
-      flowers: o.flowers.map((x) => ({ id: x.fid, name: x.name, qty: x.qty, unit: x.unit })),
+      flowers: o.flowers.map((x) => (x.per === 'bunch' ? { name: `${x.name} (بسته ${faD(x.size)}تایی)`, qty: x.qty, unit: x.unit } : { id: x.fid, name: x.name, qty: x.qty, unit: x.unit })),
       packs: o.packs.map((x) => ({ name: PACKS.find(([k]) => k === x.type)[1] + (x.label ? ' - ' + x.label : ''), qty: x.qty, unit: x.unit })),
       supplies: o.supplies.map((x) => ({ name: x.name || 'مورد دیگر', qty: 1, unit: x.unit })),
       totals: { flowers: t.fl, packs: t.pk, supplies: t.sp, cost: t.cost, profit: o.profit, price: o.price },
@@ -755,7 +790,7 @@
       }
       case 'save-prices': {
         const list = Object.entries(dirtyPrices).filter(([, v]) => v);
-        list.forEach(([id, v]) => rememberPrice(id, v));
+        list.forEach(([id, v]) => rememberPrice(id, v, (prices[id] && prices[id].per) || 'stem', prices[id] && prices[id].size));
         Object.keys(dirtyPrices).forEach((k) => delete dirtyPrices[k]);
         render();
         toast(`${faD(list.length)} قیمت ذخیره شد`);
